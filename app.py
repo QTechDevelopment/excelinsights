@@ -16,6 +16,12 @@ if 'comparison_results' not in st.session_state:
     st.session_state.comparison_results = None
 if 'selected_sheets' not in st.session_state:
     st.session_state.selected_sheets = {}
+if 'uploaded_files' not in st.session_state:
+    st.session_state.uploaded_files = []
+if 'multi_file_data' not in st.session_state:
+    st.session_state.multi_file_data = []
+if 'multi_comparison_results' not in st.session_state:
+    st.session_state.multi_comparison_results = None
 
 def main():
     st.set_page_config(
@@ -37,37 +43,74 @@ def main():
     with st.sidebar:
         st.header("📁 File Upload")
         
-        # File upload section
-        uploaded_file1 = st.file_uploader(
-            "Upload First Excel File",
-            type=['xlsx', 'xls'],
-            key="file1"
+        # Mode selection
+        upload_mode = st.radio(
+            "Upload Mode:",
+            ["Two Files (Standard)", "Multiple Files (3+)"],
+            help="Choose whether to compare 2 files or track changes across multiple versions"
         )
         
-        uploaded_file2 = st.file_uploader(
-            "Upload Second Excel File (Optional for comparison)",
-            type=['xlsx', 'xls'],
-            key="file2"
-        )
+        if upload_mode == "Two Files (Standard)":
+            # Original two-file upload
+            uploaded_file1 = st.file_uploader(
+                "Upload First Excel File",
+                type=['xlsx', 'xls'],
+                key="file1"
+            )
+            
+            uploaded_file2 = st.file_uploader(
+                "Upload Second Excel File (Optional for comparison)",
+                type=['xlsx', 'xls'],
+                key="file2"
+            )
+            
+            # Process uploaded files
+            if uploaded_file1:
+                try:
+                    st.session_state.file1_data = excel_processor.load_excel(uploaded_file1)
+                    st.success(f"✅ Loaded: {uploaded_file1.name}")
+                except Exception as e:
+                    st.error(f"❌ Error loading file 1: {str(e)}")
+            
+            if uploaded_file2:
+                try:
+                    st.session_state.file2_data = excel_processor.load_excel(uploaded_file2)
+                    st.success(f"✅ Loaded: {uploaded_file2.name}")
+                except Exception as e:
+                    st.error(f"❌ Error loading file 2: {str(e)}")
         
-        # Process uploaded files
-        if uploaded_file1:
-            try:
-                st.session_state.file1_data = excel_processor.load_excel(uploaded_file1)
-                st.success(f"✅ Loaded: {uploaded_file1.name}")
-            except Exception as e:
-                st.error(f"❌ Error loading file 1: {str(e)}")
-        
-        if uploaded_file2:
-            try:
-                st.session_state.file2_data = excel_processor.load_excel(uploaded_file2)
-                st.success(f"✅ Loaded: {uploaded_file2.name}")
-            except Exception as e:
-                st.error(f"❌ Error loading file 2: {str(e)}")
+        else:
+            # Multi-file upload
+            st.info("📝 Upload files in chronological order (oldest to newest) to track changes over time")
+            
+            uploaded_files = st.file_uploader(
+                "Upload Excel Files (3 or more)",
+                type=['xlsx', 'xls'],
+                accept_multiple_files=True,
+                key="multi_files"
+            )
+            
+            if uploaded_files and len(uploaded_files) >= 2:
+                try:
+                    st.session_state.multi_file_data = []
+                    st.session_state.uploaded_files = []
+                    
+                    for uploaded_file in uploaded_files:
+                        file_data = excel_processor.load_excel(uploaded_file)
+                        st.session_state.multi_file_data.append(file_data)
+                        st.session_state.uploaded_files.append(uploaded_file.name)
+                        st.success(f"✅ Loaded: {uploaded_file.name}")
+                    
+                    st.info(f"📊 Total files loaded: {len(uploaded_files)}")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error loading files: {str(e)}")
+            elif uploaded_files:
+                st.warning("⚠️ Please upload at least 2 files for comparison")
     
     # Main content area
     if st.session_state.file1_data:
-        # Sheet selection
+        # Sheet selection for two-file mode
         col1, col2 = st.columns(2)
         
         with col1:
@@ -114,6 +157,9 @@ def main():
                 else:
                     st.warning("Please upload a second file for comparison.")
         
+        with col_query3:
+            st.caption("Use buttons to analyze your data")
+        
         # Display data section
         st.header("📋 Data View")
         
@@ -128,6 +174,47 @@ def main():
         if st.session_state.comparison_results:
             st.header("💾 Export Results")
             export_comparison_results()
+    
+    elif st.session_state.multi_file_data and len(st.session_state.multi_file_data) >= 2:
+        # Multi-file comparison mode
+        st.header("📊 Multi-File Version Tracking")
+        
+        # Sheet selection for multi-file mode
+        st.subheader("Sheet Selection")
+        
+        # Get common sheets across all files
+        common_sheets = set(st.session_state.multi_file_data[0].keys())
+        for file_data in st.session_state.multi_file_data[1:]:
+            common_sheets &= set(file_data.keys())
+        
+        if common_sheets:
+            selected_sheet = st.selectbox(
+                "Select sheet to compare across all files:",
+                list(common_sheets),
+                key="multi_sheet_select"
+            )
+            
+            # Compare button
+            col1, col2, col3 = st.columns([1, 1, 2])
+            
+            with col1:
+                if st.button("🔄 Compare All Versions", type="primary"):
+                    perform_multi_file_comparison(comparison_engine, viz_engine, selected_sheet)
+            
+            with col2:
+                if st.button("📥 Export All Data"):
+                    export_multi_file_data(selected_sheet)
+            
+            # Display multi-file comparison results
+            if st.session_state.multi_comparison_results:
+                viz_engine.display_multi_file_comparison(st.session_state.multi_comparison_results)
+            
+            # Display data preview
+            st.header("📋 Data Preview")
+            display_multi_file_preview(selected_sheet)
+            
+        else:
+            st.error("❌ No common sheets found across all uploaded files. Please ensure all files have at least one sheet with the same name.")
     
     else:
         # Welcome screen
@@ -308,6 +395,102 @@ def export_comparison_results():
                     summary_text = "\n".join([f"{k}: {v}" for k, v in summary.items()])
                     st.code(summary_text)
                     st.success("Summary displayed above - you can copy it manually")
+
+def perform_multi_file_comparison(comparison_engine, viz_engine, selected_sheet):
+    """Perform comparison across multiple files"""
+    try:
+        with st.spinner("Comparing multiple files..."):
+            # Extract DataFrames for the selected sheet from all files
+            dataframes = []
+            for file_data in st.session_state.multi_file_data:
+                if selected_sheet in file_data:
+                    dataframes.append(file_data[selected_sheet])
+            
+            if len(dataframes) < 2:
+                st.error("Not enough data to compare. Please ensure the selected sheet exists in all files.")
+                return
+            
+            # Use file names as labels
+            labels = st.session_state.uploaded_files if st.session_state.uploaded_files else None
+            
+            # Perform multi-file comparison
+            results = comparison_engine.compare_multiple_dataframes(
+                dataframes,
+                labels=labels,
+                method='exact'
+            )
+            
+            st.session_state.multi_comparison_results = results
+            st.success(f"✅ Successfully compared {len(dataframes)} files!")
+            
+    except Exception as e:
+        st.error(f"Error during multi-file comparison: {str(e)}")
+        import traceback
+        st.error(traceback.format_exc())
+
+def export_multi_file_data(selected_sheet):
+    """Export multi-file comparison data"""
+    try:
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            # Export each file's data
+            for i, (file_data, filename) in enumerate(zip(st.session_state.multi_file_data, st.session_state.uploaded_files)):
+                if selected_sheet in file_data:
+                    sheet_name = f"V{i+1}_{filename[:20]}"  # Limit sheet name length
+                    file_data[selected_sheet].to_excel(writer, sheet_name=sheet_name, index=False)
+            
+            # Export comparison results if available
+            if st.session_state.multi_comparison_results:
+                results = st.session_state.multi_comparison_results
+                
+                # Export change tracking
+                if results['change_tracking']['changed_cells']:
+                    changed_df = pd.DataFrame(results['change_tracking']['changed_cells'])
+                    # Expand values for display
+                    display_data = []
+                    for _, row in changed_df.iterrows():
+                        value_history = " → ".join([f"{v['value']}" for v in row['values']])
+                        display_data.append({
+                            'Row': row['row'],
+                            'Column': row['column'],
+                            'Change History': value_history
+                        })
+                    pd.DataFrame(display_data).to_excel(writer, sheet_name='Changes', index=False)
+                
+                # Export summary
+                summary_data = []
+                for key, value in results['summary'].items():
+                    if key not in ['version_transitions', 'most_changed_columns', 'shapes']:
+                        summary_data.append({'Metric': key, 'Value': str(value)})
+                pd.DataFrame(summary_data).to_excel(writer, sheet_name='Summary', index=False)
+        
+        output.seek(0)
+        
+        st.download_button(
+            label="📄 Download Multi-File Report",
+            data=output.getvalue(),
+            file_name="multi_file_comparison_report.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+    except Exception as e:
+        st.error(f"Error exporting data: {str(e)}")
+
+def display_multi_file_preview(selected_sheet):
+    """Display preview of all uploaded files"""
+    st.subheader("📄 File Previews")
+    
+    num_files = len(st.session_state.multi_file_data)
+    cols = st.columns(min(num_files, 3))  # Max 3 columns
+    
+    for i, (file_data, filename) in enumerate(zip(st.session_state.multi_file_data, st.session_state.uploaded_files)):
+        with cols[i % 3]:
+            st.write(f"**{filename}**")
+            if selected_sheet in file_data:
+                df = file_data[selected_sheet]
+                st.dataframe(df.head(5), use_container_width=True)
+                st.caption(f"Shape: {df.shape[0]} rows × {df.shape[1]} columns")
+            else:
+                st.warning(f"Sheet '{selected_sheet}' not found")
 
 if __name__ == "__main__":
     main()
