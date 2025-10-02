@@ -371,3 +371,240 @@ class ComparisonEngine:
             analysis['unique_values_per_column'][col] = df[col].nunique()
         
         return analysis
+    
+    def compare_multiple_dataframes(self, dataframes: List[pd.DataFrame], 
+                                   labels: Optional[List[str]] = None,
+                                   method: str = 'exact',
+                                   numeric_threshold: float = 0.001) -> Dict[str, Any]:
+        """
+        Compare multiple DataFrames (3 or more) and track changes across versions
+        
+        Args:
+            dataframes: List of DataFrames to compare
+            labels: Optional labels for each DataFrame (e.g., timestamps, versions)
+            method: Comparison method ('exact', 'fuzzy', 'numeric_threshold')
+            numeric_threshold: Threshold for numeric comparisons
+            
+        Returns:
+            Dictionary containing multi-file comparison results
+        """
+        if len(dataframes) < 2:
+            raise ValueError("At least 2 DataFrames are required for comparison")
+        
+        # Generate default labels if not provided
+        if labels is None:
+            labels = [f"File {i+1}" for i in range(len(dataframes))]
+        elif len(labels) != len(dataframes):
+            raise ValueError("Number of labels must match number of DataFrames")
+        
+        try:
+            # Find common columns across all DataFrames
+            common_columns = set(dataframes[0].columns)
+            for df in dataframes[1:]:
+                common_columns &= set(df.columns)
+            common_columns = list(common_columns)
+            
+            if not common_columns:
+                raise ValueError("No common columns found across all DataFrames")
+            
+            # Align all DataFrames
+            aligned_dfs = []
+            max_rows = max(len(df) for df in dataframes)
+            
+            for df in dataframes:
+                aligned_df = df[common_columns].copy()
+                if len(aligned_df) < max_rows:
+                    padding_rows = max_rows - len(aligned_df)
+                    padding_df = pd.DataFrame(np.nan, index=range(padding_rows), columns=aligned_df.columns)
+                    aligned_df = pd.concat([aligned_df, padding_df], ignore_index=True)
+                aligned_dfs.append(aligned_df)
+            
+            # Perform pairwise comparisons
+            pairwise_comparisons = {}
+            for i in range(len(aligned_dfs) - 1):
+                comparison_key = f"{labels[i]}_vs_{labels[i+1]}"
+                pairwise_comparisons[comparison_key] = self.compare_dataframes(
+                    aligned_dfs[i], aligned_dfs[i+1], 
+                    method=method,
+                    numeric_threshold=numeric_threshold,
+                    highlight_differences=True,
+                    highlight_matches=False
+                )
+            
+            # Track changes across all versions
+            change_tracking = self._track_changes_across_versions(
+                aligned_dfs, labels, common_columns, method, numeric_threshold
+            )
+            
+            # Generate comprehensive summary
+            multi_summary = self._generate_multi_file_summary(
+                aligned_dfs, labels, pairwise_comparisons, change_tracking
+            )
+            
+            return {
+                'method': method,
+                'labels': labels,
+                'common_columns': common_columns,
+                'pairwise_comparisons': pairwise_comparisons,
+                'change_tracking': change_tracking,
+                'summary': multi_summary,
+                'aligned_dataframes': {label: df for label, df in zip(labels, aligned_dfs)}
+            }
+            
+        except Exception as e:
+            raise Exception(f"Multi-file comparison failed: {str(e)}")
+    
+    def _track_changes_across_versions(self, aligned_dfs: List[pd.DataFrame], 
+                                      labels: List[str],
+                                      common_columns: List[str],
+                                      method: str,
+                                      numeric_threshold: float) -> Dict[str, Any]:
+        """
+        Track how each cell changes across all versions
+        
+        Args:
+            aligned_dfs: List of aligned DataFrames
+            labels: Labels for each DataFrame
+            common_columns: List of common columns
+            method: Comparison method
+            numeric_threshold: Numeric threshold
+            
+        Returns:
+            Dictionary with change tracking information
+        """
+        change_tracking = {
+            'cell_history': {},  # History of each cell across versions
+            'changed_cells': [],  # Cells that changed at least once
+            'unchanged_cells': [],  # Cells that never changed
+            'column_change_frequency': {}  # How often each column changes
+        }
+        
+        # Track changes for each cell position
+        for col in common_columns:
+            column_changes = 0
+            
+            for row_idx in range(len(aligned_dfs[0])):
+                cell_key = f"row_{row_idx}_col_{col}"
+                cell_values = []
+                changed = False
+                
+                # Collect values across all versions
+                for i, df in enumerate(aligned_dfs):
+                    value = df.loc[row_idx, col]
+                    cell_values.append({
+                        'version': labels[i],
+                        'value': value
+                    })
+                    
+                    # Check if value changed from previous version
+                    if i > 0:
+                        prev_value = aligned_dfs[i-1].loc[row_idx, col]
+                        if not self._values_equal(value, prev_value, method, numeric_threshold):
+                            changed = True
+                
+                change_tracking['cell_history'][cell_key] = {
+                    'row': row_idx,
+                    'column': col,
+                    'values': cell_values,
+                    'changed': changed
+                }
+                
+                if changed:
+                    change_tracking['changed_cells'].append({
+                        'row': row_idx,
+                        'column': col,
+                        'values': cell_values
+                    })
+                    column_changes += 1
+                else:
+                    change_tracking['unchanged_cells'].append({
+                        'row': row_idx,
+                        'column': col,
+                        'value': cell_values[0]['value'] if cell_values else None
+                    })
+            
+            change_tracking['column_change_frequency'][col] = column_changes
+        
+        return change_tracking
+    
+    def _values_equal(self, val1: Any, val2: Any, method: str, threshold: float) -> bool:
+        """
+        Check if two values are equal based on comparison method
+        
+        Args:
+            val1, val2: Values to compare
+            method: Comparison method
+            threshold: Numeric threshold
+            
+        Returns:
+            True if values are equal, False otherwise
+        """
+        # Handle NaN values
+        if pd.isna(val1) and pd.isna(val2):
+            return True
+        if pd.isna(val1) or pd.isna(val2):
+            return False
+        
+        if method == 'numeric_threshold':
+            # Try numeric comparison
+            try:
+                num1 = pd.to_numeric(val1, errors='coerce')
+                num2 = pd.to_numeric(val2, errors='coerce')
+                if pd.notna(num1) and pd.notna(num2):
+                    return abs(num1 - num2) <= threshold
+            except:
+                pass
+        elif method == 'fuzzy':
+            # Fuzzy string comparison
+            similarity = difflib.SequenceMatcher(None, str(val1), str(val2)).ratio()
+            return similarity >= 0.8
+        
+        # Default exact comparison
+        return val1 == val2
+    
+    def _generate_multi_file_summary(self, aligned_dfs: List[pd.DataFrame],
+                                    labels: List[str],
+                                    pairwise_comparisons: Dict[str, Any],
+                                    change_tracking: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate summary statistics for multi-file comparison
+        
+        Args:
+            aligned_dfs: List of aligned DataFrames
+            labels: Labels for each DataFrame
+            pairwise_comparisons: Pairwise comparison results
+            change_tracking: Change tracking information
+            
+        Returns:
+            Dictionary with summary statistics
+        """
+        total_cells = aligned_dfs[0].size
+        changed_cells = len(change_tracking['changed_cells'])
+        unchanged_cells = len(change_tracking['unchanged_cells'])
+        
+        # Calculate change statistics per version transition
+        version_transitions = []
+        for comparison_key, result in pairwise_comparisons.items():
+            version_transitions.append({
+                'transition': comparison_key,
+                'differences': result['summary']['different_cells'],
+                'matches': result['summary']['matching_cells'],
+                'match_percentage': result['summary']['match_percentage']
+            })
+        
+        return {
+            'num_versions': len(aligned_dfs),
+            'version_labels': labels,
+            'total_cells_per_version': total_cells,
+            'total_changed_cells': changed_cells,
+            'total_unchanged_cells': unchanged_cells,
+            'change_percentage': (changed_cells / total_cells * 100) if total_cells > 0 else 0,
+            'version_transitions': version_transitions,
+            'most_changed_columns': sorted(
+                change_tracking['column_change_frequency'].items(),
+                key=lambda x: x[1],
+                reverse=True
+            )[:5],
+            'common_columns': list(aligned_dfs[0].columns),
+            'shapes': {label: df.shape for label, df in zip(labels, aligned_dfs)}
+        }
