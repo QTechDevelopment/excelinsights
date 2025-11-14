@@ -46,8 +46,8 @@ def main():
         # Mode selection
         upload_mode = st.radio(
             "Upload Mode:",
-            ["Two Files (Standard)", "Multiple Files (3+)"],
-            help="Choose whether to compare 2 files or track changes across multiple versions"
+            ["Two Files (Standard)", "Multiple Files (2-4)"],
+            help="Choose whether to compare 2 files or track changes across 2-4 versions"
         )
         
         if upload_mode == "Two Files (Standard)":
@@ -81,32 +81,42 @@ def main():
         
         else:
             # Multi-file upload
-            st.info("📝 Upload files in chronological order (oldest to newest) to track changes over time")
+            st.info("📝 Upload 2-4 files in chronological order (oldest to newest) to track changes over time")
+            st.caption("⚠️ Maximum 4 files allowed")
             
             uploaded_files = st.file_uploader(
-                "Upload Excel Files (3 or more)",
+                "Upload Excel Files (2-4 files)",
                 type=['xlsx', 'xls'],
                 accept_multiple_files=True,
-                key="multi_files"
+                key="multi_files",
+                help="Select 2 to 4 Excel files to compare. Files should be in chronological order."
             )
             
-            if uploaded_files and len(uploaded_files) >= 2:
-                try:
+            if uploaded_files:
+                # Validate file count
+                if len(uploaded_files) > 4:
+                    st.error(f"❌ Too many files selected! You uploaded {len(uploaded_files)} files, but the maximum is 4.")
+                    st.warning("Please select up to 4 files only.")
+                    # Clear the session state
                     st.session_state.multi_file_data = []
                     st.session_state.uploaded_files = []
-                    
-                    for uploaded_file in uploaded_files:
-                        file_data = excel_processor.load_excel(uploaded_file)
-                        st.session_state.multi_file_data.append(file_data)
-                        st.session_state.uploaded_files.append(uploaded_file.name)
-                        st.success(f"✅ Loaded: {uploaded_file.name}")
-                    
-                    st.info(f"📊 Total files loaded: {len(uploaded_files)}")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error loading files: {str(e)}")
-            elif uploaded_files:
-                st.warning("⚠️ Please upload at least 2 files for comparison")
+                elif len(uploaded_files) >= 2:
+                    try:
+                        st.session_state.multi_file_data = []
+                        st.session_state.uploaded_files = []
+                        
+                        for uploaded_file in uploaded_files:
+                            file_data = excel_processor.load_excel(uploaded_file)
+                            st.session_state.multi_file_data.append(file_data)
+                            st.session_state.uploaded_files.append(uploaded_file.name)
+                            st.success(f"✅ Loaded: {uploaded_file.name}")
+                        
+                        st.info(f"📊 Total files loaded: {len(uploaded_files)}")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error loading files: {str(e)}")
+                else:
+                    st.warning("⚠️ Please upload at least 2 files for comparison")
     
     # Main content area
     if st.session_state.file1_data:
@@ -177,7 +187,7 @@ def main():
     
     elif st.session_state.multi_file_data and len(st.session_state.multi_file_data) >= 2:
         # Multi-file comparison mode
-        st.header("📊 Multi-File Version Tracking")
+        st.header("📊 Multi-File Version Tracking (2-4 Files)")
         
         # Sheet selection for multi-file mode
         st.subheader("Sheet Selection")
