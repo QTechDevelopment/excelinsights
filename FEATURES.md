@@ -22,12 +22,12 @@ Compare two Excel files side-by-side with detailed difference highlighting.
 - Validate data between source and target files
 - Identify discrepancies in data sets
 
-### 2. Multi-File Version Tracking (3+ Files)
+### 2. Multi-File Version Tracking (2-4 Files)
 
 Track changes across multiple versions of Excel files to understand how data evolves over time.
 
 **Features:**
-- Upload 3 or more Excel files (chronologically ordered)
+- Upload 2 to 4 Excel files (chronologically ordered)
 - Track cell-level changes across all versions
 - Visualize change timeline and trends
 - Identify most frequently changed columns
@@ -119,8 +119,8 @@ Three comparison methods available:
 ### Multi-File Version Tracking
 
 1. **Upload Files:**
-   - In the sidebar, select "Multiple Files (3+)" mode
-   - Upload your Excel files in chronological order
+   - In the sidebar, select "Multiple Files (2-4)" mode
+   - Upload 2 to 4 Excel files in chronological order (maximum 4 files)
      - Oldest version first
      - Newest version last
    - Files should have the same sheet structure
@@ -177,7 +177,7 @@ Use natural language to perform analyses:
 ### Performance Considerations:
 
 - **File Size:** Works best with files under 1MB
-- **Number of Files:** Optimal performance with 3-10 files
+- **Number of Files:** Supports 2-4 files (optimal performance with 2-4 files)
 - **Rows:** Handles up to 10,000 rows efficiently
 - **Columns:** Works well with up to 100 columns
 

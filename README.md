@@ -40,7 +40,7 @@ A powerful tool to analyze and compare Excel files, highlighting differences and
 
 3. **Upload your files:**
    - Choose "Two Files" mode for standard comparison
-   - Choose "Multiple Files (3+)" mode to track changes over time
+   - Choose "Multiple Files (2-4)" mode to track changes over time (max 4 files)
 
 4. **Analyze:**
    - View highlighted differences
